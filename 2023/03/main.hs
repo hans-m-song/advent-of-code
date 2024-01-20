@@ -10,9 +10,7 @@ type Y = Int
 
 type Coordinate = (Y, X)
 
-type Item = (Char, Width)
-
-type Cell = (Coordinate, Item)
+type Cell = (Coordinate, String)
 
 type Boundary = (Coordinate, Coordinate)
 
@@ -36,48 +34,87 @@ main = interact run
 
 run :: String -> String
 run input =
-    -- "part 1 - total: " ++ show total
-    unlines $ map show parsed
+    unlines
+        [ "-- part 1"
+        , "part numbers:   " ++ show partNumbers
+        , "symbols:        " ++ show symbols
+        , "total:          " ++ show total1
+        , "-- part 2"
+        , "gears:          " ++ show gears
+        , "gear ratios:    " ++ show gearRatios
+        , "part 2 - total: " ++ show total2
+        ]
   where
     indexed = enumerate $ lines input
-    parsed = map (\(y, line) -> (y, line, parse line (y, 0) [])) indexed
+    parsed = map (\(y, line) -> parse line (y, 0) []) indexed
+    numbers = filterNumbers parsed
+    symbols = filterSymbols parsed
+    partNumbers = filter (isPartNumber symbols) numbers
+    total1 = foldr ((+) . atoi . snd) 0 partNumbers
+    gears = filter ((== "*") . snd) symbols
+    gearRatios = filter ((>= 2) . length) $ map (getGearRatios partNumbers) gears
+    total2 = foldr ((+) . product . map (atoi . snd)) 0 gearRatios
 
-analyseInput :: String -> String
-analyseInput input =
+identity :: String -> String
+identity input =
     unlines $ map mapY indexed
   where
     indexed = enumerate $ lines input
     mapX y (x, char) = showCell (y, x, char)
     mapY (y, line) = unwords $ map (mapX y) $ enumerate line
 
-parse :: [Char] -> Coordinate -> [Cell] -> [Cell]
-parse [] loc cells = cells -- eol
-parse ('.' : line) loc cells = parse line (loc >+ (0, 1)) cells -- space char
-parse (char : line) loc cells
-    -- continued digit char
-    | isDigit char && isDigitCell (lastCell cells) = case cells of
-        (last : cells)
-            --  continue previous
-            | isDigit $ fst $ snd last -> parse line nextLoc (incCellWidth last : cells)
-            -- new digit
-            | otherwise -> parse line nextLoc (newDigitCell : cells)
-        -- new digit char
-        [] -> parse line nextLoc [newDigitCell]
-    -- probably a symbol char
-    | otherwise = parse line nextLoc (newDigitCell : cells)
+parse :: String -> Coordinate -> [Cell] -> [Cell]
+parse [] loc cells =
+    -- end of line
+    cells
+parse (char : line) loc [] =
+    -- first char
+    parse line (loc >+ (0, 1)) [(loc, [char])]
+parse (char : line) loc (lastCell : cells)
+    -- continued char
+    | isDigit char && isNumbers lastWord =
+        parse line nextLoc (contCell : cells)
+    | isSpace char && isSpaces lastWord =
+        parse line nextLoc (contCell : cells)
+    | isSymbol char && isSymbols lastWord =
+        parse line nextLoc (contCell : cells)
+    -- different char
+    | otherwise =
+        parse line nextLoc (newCell : lastCell : cells)
   where
+    (lastLoc, lastWord) = lastCell
     nextLoc = loc >+ (0, 1)
-    last = listToMaybe cells
-    newDigitCell = (loc, (char, 0))
+    newCell = (loc, [char]) :: Cell
+    contCell = (lastLoc, lastWord ++ [char]) :: Cell
+
+filterSymbols :: [[Cell]] -> [Cell]
+filterSymbols = filter (isSymbols . snd) . concat
+
+filterNumbers :: [[Cell]] -> [Cell]
+filterNumbers = filter (isNumbers . snd) . concat
+
+isPartNumber :: [Cell] -> Cell -> Bool
+isPartNumber symbols partNumber = any (near (bounding partNumber) . fst) symbols
+
+getGearRatios :: [Cell] -> Cell -> [Cell]
+getGearRatios partNumbers gear = filter (proximal gear) partNumbers
 
 -- coordinate utils
 
-within :: Boundary -> Coordinate -> Bool
-within ((topLeftY, topLeftX), (bottomRightY, bottomRightX)) (y, x) =
+proximal :: Cell -> Cell -> Bool
+proximal centre radial = (radialBounds `near` fst centre) || (centreBounds `near` fst radial)
+  where
+    (radCoord, radWord) = radial
+    radialBounds = bounding radial
+    centreBounds = bounding centre
+
+near :: Boundary -> Coordinate -> Bool
+near ((topLeftY, topLeftX), (bottomRightY, bottomRightX)) (y, x) =
     topLeftY <= y && topLeftX <= x && bottomRightY >= y && bottomRightX >= x
 
-bounding :: Coordinate -> Width -> Boundary
-bounding char width = (char >+ (-1, -1), char >+ (1, width + 1))
+bounding :: Cell -> Boundary
+bounding (coord, word) =
+    (coord >+ (-1, -1), coord >+ (1, length word))
 
 infixl 9 >+
 (>+) :: Coordinate -> Coordinate -> Coordinate
@@ -85,40 +122,38 @@ infixl 9 >+
 
 -- cell utils
 
-incCellWidth :: Cell -> Cell
-incCellWidth (loc, (char, width)) = (loc, (char, width + 1))
-
-lastCell :: [Cell] -> Maybe Cell
-lastCell [] = Nothing
-lastCell [cell] = Just cell
-
-isDigitCell :: Maybe Cell -> Bool
-isDigitCell cell = case cell of
-    Nothing -> False
-    Just (_, (char, _)) -> isDigit char
-
 showCell :: (Y, X, Char) -> String
-showCell (y, x, char) = discriminate char ++ "(" ++ show y ++ "," ++ show x ++ "," ++ [char] ++ ")"
-
-cellWidth :: Cell -> Int
-cellWidth (_, (_, w)) = w
-
-cellChar :: Cell -> Char
-cellChar (_, (c, _)) = c
+showCell (y, x, char) =
+    discriminate char ++ "(" ++ show y ++ "," ++ show x ++ "," ++ [char] ++ ")"
 
 -- misc
+
+atoi :: String -> Int
+atoi = read
 
 enumerate :: [item] -> [(Int, item)]
 enumerate = zip [0 ..]
 
+isNumbers :: String -> Bool
+isNumbers = all isDigit
+
+isSpace :: Char -> Bool
+isSpace c = c == '.'
+
+isSpaces :: String -> Bool
+isSpaces = all isSpace
+
 isSymbol :: Char -> Bool
 isSymbol c
-    | c == '.' = False
+    | isSpace c = False
     | isDigit c = False
     | otherwise = True
 
+isSymbols :: String -> Bool
+isSymbols = all isSymbol
+
 discriminate :: Char -> String
-discriminate '.' = "Nil"
 discriminate char
+    | isSpace char = "Nil"
     | isDigit char = "Int"
     | otherwise = "Sym"
