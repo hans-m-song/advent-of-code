@@ -25,12 +25,12 @@ main = do
     contents <- getContents
     let cards = map parseCard $ lines contents
         counts = map countWinningNumbers cards
-        scores = map calculateCardScore counts
+        score = sum $ map calculateCardScore counts
+        total = countCards counts $ length counts
     putStrLn "-- part 1"
-    putStrLn $ "scores: " ++ show scores
-    putStrLn $ "total: " ++ show (sum scores)
+    putStrLn $ "total: " ++ show score
     putStrLn "-- part 2"
-    putStrLn $ "total: " ++ show (countCards scores (length scores))
+    putStrLn $ "total: " ++ show total
 
 parseCard :: String -> Card
 parseCard input = (winning, revealed)
@@ -53,8 +53,9 @@ countCards [] _ = 0
 -- finished counting copies
 countCards _ 0 = 0
 countCards (count : points) limit =
+    -- current card
     1
-        -- continue last count for last card
+        -- continue count for last card
         + countCards points (limit - 1)
         -- start a new one for current card
         + countCards points count
